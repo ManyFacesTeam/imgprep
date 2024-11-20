@@ -1,0 +1,124 @@
+---
+title: "Image Prep Pipeline"
+format: 
+  html:
+    toc: true
+execute: 
+  echo: true
+  warning: true
+  error: true
+---
+
+```{r}
+#| message: false
+
+set.seed(8675309)
+# remotes::install_github("debruine/webmorphR")
+library(webmorphR)
+# remotes::install_github("debruine/webmorphR.dlib")
+# library(webmorphR.dlib)
+```
+
+## Setup
+
+Since we can't put all of the images in the code repository for privacy purposes, this code assumes the images are in the project directory under "images/raw" and will save processed images under "images/proc". The repository has some demo images in this directory for script testing purposes.
+
+```{r}
+# setup images directories
+img_dir <- "manyfaces"
+raw_dir <- file.path(img_dir, "raw")
+proc_dir <- file.path(img_dir, "proc")
+
+# colour defaults
+wm_opts(fill = "white") # set fill to image background colour
+
+quick_viz <- function(stim, n = 3, tem = FALSE, bg = "grey") {
+  n <- min(n, length(stim))
+  samp <- sample(seq_along(stim), n)
+  s <- stim[samp]
+  if (tem) { s <- draw_tem(s)}
+  
+  s |>
+    pad(100, 0, 0, 0, fill = bg) |>
+    plot(fill = bg)
+}
+```
+
+## Load images 
+
+```{r}
+# read in only front-facing raw images
+raw_files <- list.files(raw_dir, "_0\\.cr3$", 
+                        full.names = TRUE, 
+                        recursive = TRUE, 
+                        ignore.case = TRUE)
+```
+
+## Delineate 
+
+We just need the centre eye points here. 
+
+```{r}
+# images too big for Face++
+for (i in seq_along(raw_files)) {
+  tem <- sub("\\.CR3", "\\.tem", raw_files[[i]])
+  if (!file.exists(tem)) {
+    raw_imgs <- read_stim(raw_files[[i]])
+    
+    tryCatch({
+      small <- raw_imgs |>
+        resize(0.5) |>
+        auto_delin("fpp106")
+      
+      small[[1]]$img <- NULL
+      small[[1]]$imgpath <- NULL
+      big <- resize(small, 2)
+      
+      
+      write_stim(big, 
+                 dir = dirname(tem), 
+                 names = basename(tem) |> sub("\\.tem$", "", x = _),
+                 overwrite = FALSE)
+    }, error = function(e) {
+      message(e$message)
+    })
+  }
+}
+```
+
+## Reload Raw Images
+
+```{r}
+raw_imgs <- read_stim(raw_files[1]) |> 
+  require_tems()
+
+# quick viz of 3 random images to check if this worked
+quick_viz(raw_imgs, tem = TRUE)
+```
+
+## Align
+
+```{r}
+# alignment defaults
+align_def <- list(
+  width = 600,
+  height = 800,
+  x1 = 225,
+  x2 = 375,
+  y1 = 400,
+  y2 = 400
+)
+
+aligned_imgs <- align_def |>
+  c(list(stimuli = raw_imgs)) |>
+  do.call(align, args = _)
+
+# quick checking viz - pupils aligned and horizontal
+average_tem(aligned_imgs) |> draw_tem()
+``` 
+## Save
+
+```{r}
+write_stim(aligned_imgs)
+```
+
