@@ -3,6 +3,8 @@ title: "Image Prep Pipeline"
 format: 
   html:
     toc: true
+    fig-asp: 0.667
+    fig-height: 400
 execute: 
   echo: true
   warning: true
@@ -31,17 +33,6 @@ proc_dir <- file.path(img_dir, "proc")
 
 # colour defaults
 wm_opts(fill = "white") # set fill to image background colour
-
-quick_viz <- function(stim, n = 3, tem = FALSE, bg = "grey") {
-  n <- min(n, length(stim))
-  samp <- sample(seq_along(stim), n)
-  s <- stim[samp]
-  if (tem) { s <- draw_tem(s)}
-  
-  s |>
-    pad(100, 0, 0, 0, fill = bg) |>
-    plot(fill = bg)
-}
 ```
 
 ## Load images 
@@ -49,6 +40,11 @@ quick_viz <- function(stim, n = 3, tem = FALSE, bg = "grey") {
 ```{r}
 # read in only front-facing raw images
 raw_files <- list.files(raw_dir, "_0\\.cr3$", 
+                        full.names = TRUE, 
+                        recursive = TRUE, 
+                        ignore.case = TRUE)
+
+raw_files2 <- list.files(raw_dir, "_0\\.cr2$", 
                         full.names = TRUE, 
                         recursive = TRUE, 
                         ignore.case = TRUE)
@@ -67,12 +63,12 @@ for (i in seq_along(raw_files)) {
     
     tryCatch({
       small <- raw_imgs |>
-        resize(0.5) |>
+        resize(0.25) |>
         auto_delin("fpp106")
       
       small[[1]]$img <- NULL
       small[[1]]$imgpath <- NULL
-      big <- resize(small, 2)
+      big <- resize(small, 4)
       
       
       write_stim(big, 
@@ -86,15 +82,6 @@ for (i in seq_along(raw_files)) {
 }
 ```
 
-## Reload Raw Images
-
-```{r}
-raw_imgs <- read_stim(raw_files[1]) |> 
-  require_tems()
-
-# quick viz of 3 random images to check if this worked
-quick_viz(raw_imgs, tem = TRUE)
-```
 
 ## Align
 
@@ -105,20 +92,63 @@ align_def <- list(
   height = 800,
   x1 = 225,
   x2 = 375,
-  y1 = 400,
-  y2 = 400
+  y1 = 350,
+  y2 = 350
 )
 
-aligned_imgs <- align_def |>
-  c(list(stimuli = raw_imgs)) |>
-  do.call(align, args = _)
-
-# quick checking viz - pupils aligned and horizontal
-average_tem(aligned_imgs) |> draw_tem()
-``` 
-## Save
-
-```{r}
-write_stim(aligned_imgs)
+for (file in raw_files) {
+  img <- read_stim(file)
+  
+  aligned <- align_def |>
+    c(list(stimuli = img)) |>
+    do.call(align, args = _)
+  
+  write_stim(aligned, dir = proc_dir)
+}
 ```
 
+
+```{r}
+# quick checking viz - pupils aligned and horizontal
+average_tem(aligned_imgs) |> draw_tem()
+```
+
+```{r}
+std_neu <- read_stim(proc_dir, "_std_neu_0")
+
+std_neu_all <- plot_stim(std_neu, ncol = 21)
+
+write_stim(std_neu_all, dir = "manyfaces/figs",names = "std_neu_0")
+```
+
+
+
+```{r, eval= FALSE}
+
+std_neu_files <- raw_files[grepl("_std_neu_0", raw_files)]
+for (file in std_neu_files) {
+  img <- read_stim(file)
+  
+  aligned <- img |>
+    resize(0.2) |>
+    align(width = 600,
+          height = 800,
+          pt1 = 71,
+          pt2 = 71,
+          x1 = 300,
+          x2 = 300,
+          y1 = 350,
+          y2 = 350)
+  
+  write_stim(aligned, dir = "manyfaces/proc2")
+}
+
+```
+
+```{r}
+std_neu <- read_stim("manyfaces/proc2", "_std_neu_0")
+
+std_neu_all <- plot_stim(std_neu, ncol = 21, fill = "black")
+
+write_stim(std_neu_all, dir = "manyfaces/figs",names = "std_neu_0-noresize")
+```
