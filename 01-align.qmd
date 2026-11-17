@@ -1,0 +1,244 @@
+---
+title: "Image Alignment"
+format: 
+  html:
+    toc: true
+    fig-asp: 0.667
+    fig-height: 400
+execute: 
+  echo: true
+  warning: true
+  error: true
+---
+
+```{r}
+#| message: false
+
+set.seed(8675309)
+# remotes::install_github("debruine/webmorphR")
+library(webmorphR)
+# remotes::install_github("debruine/webmorphR.dlib")
+# library(webmorphR.dlib)
+
+library(dplyr)
+```
+
+```{r}
+# setup images directories
+img_dir <- "manyfaces"
+proc_dir <- file.path(img_dir, "small") # use small for testing
+
+```
+
+```{r}
+imgs <- read_stim(proc_dir, "_std_neu_0")
+
+# fix CR2
+cr2 <- which(width(imgs) < max(width(imgs)))
+
+imgs[cr2] <- resize(imgs[cr2], 
+                    width = max(width(imgs)), 
+                    height = max(height(imgs)))
+```
+
+
+```{r}
+lab <- substr(names(imgs), 1, 6)
+labs <- unique(lab)
+names(labs) <- labs
+
+wm_opts(fill = "white")
+img_by_lab <- lapply(labs, \(i) imgs[lab == i])
+img_by_lab$keep_relative = TRUE
+img_by_lab$maxwidth = 5000
+img_by_lab$size = 60
+do.call(plot_rows, img_by_lab) |>
+  write_stim(dir = "manyfaces/figs", 
+             names = "orig", 
+             format = "jpg", 
+             overwrite = TRUE)
+  
+```
+
+```{r}
+wm_opts(fill = "red") # to highlight cropping for testing
+```
+
+
+
+## Align on Eyes
+
+```{r}
+# alignment defaults
+align_args <- list(
+  stimuli = imgs,
+  width = 600,
+  height = 800,
+  x1 = 220,
+  x2 = 380,
+  y1 = 350,
+  y2 = 350
+)
+
+eyes <- do.call(align, args = align_args)
+```
+
+
+```{r}
+# quick checking viz - pupils aligned and horizontal
+average_tem(eyes) |> draw_tem()
+```
+
+```{r}
+plot_stim(eyes, ncol = 21, fill = "black") |>
+  write_stim(dir = "manyfaces/figs", 
+             names = "align_eyes", 
+             format = "jpg", 
+             overwrite = TRUE)
+```
+
+![](manyfaces/figs/align_eyes.png)
+
+## Whitepoint adjustment
+
+```{r}
+patch <- crop(imgs, 100, 100, 100, 350)
+labels <- gsub("_std_neu_0", "", names(patch)) |> gsub("MF00\\d\\d_", "", x = _)
+
+labeled_patch <- patch |>
+  label(label = labels, size = 25, y = .9)
+
+wm_opts(fill = "white")
+img_by_lab <- lapply(labs, \(i) labeled_patch[lab == i])
+img_by_lab$keep_relative = TRUE
+img_by_lab$maxwidth = 5000
+img_by_lab$size = 60
+do.call(plot_rows, img_by_lab) |>
+  write_stim(dir = "manyfaces/figs", 
+             names = "patch", 
+             format = "jpg", 
+             overwrite = TRUE)
+```
+
+https://www.easyrgb.com/en/math.php
+https://stackoverflow.com/questions/54470148/white-balance-a-photo-from-a-known-point
+
+
+```{r}
+patch <- patch(imgs, 100, 100, 100, 350)
+lab <- sapply(patch, color_conv, to = "lab") |>
+  t() |>
+  as_tibble(rownames = "id")
+```
+
+
+
+## 1-point alignment
+
+
+```{r}
+fill_patch <- patch(imgs, x_off = 20, y_off = 20 )
+
+h <- 900
+w <- h/4*3
+align_args <- list(
+  stimuli = imgs,
+  width = w,
+  height = h,
+  pt1 = 71,
+  pt2 = 71,
+  x1 = w/2,
+  x2 = w/2,
+  y1 = h*.4,
+  y2 = h*.4,
+  fill = fill_patch
+)
+
+onepoint <- do.call(align, args = align_args)
+```
+
+
+```{r}
+write_stim(onepoint, "manyfaces/onepoint/", format = "jpg")
+```
+
+
+```{r}
+# quick checking viz
+average_tem(onepoint) |> draw_tem()
+```
+
+```{r}
+plot_stim(onepoint, ncol = 21, fill = "black") |>
+  write_stim(dir = "manyfaces/figs", 
+             names = "align_onepoint2", 
+             format = "jpg", 
+             overwrite = TRUE)
+```
+
+## Resize for distance
+
+```{r}
+std_neu <- list.files("manyfaces/small", "\\.jpg", full.names = T)
+
+exif <- readxl::read_excel("Exif_processed.xlsx", sheet = 2) |>
+  mutate(smallpath = SourceFile |>
+    gsub("manyfaces.*/MF", "manyfaces/small/MF", x = _) |>
+    gsub("CR(3|2)", "jpg", x = _) |>
+    gsub("(-|_+)", "_", x = _)
+  ) |>
+  filter(grepl("_std_neu_0\\.", smallpath),
+         !grepl("test", smallpath)) |>
+  select(smallpath, Group, resize = 23) |>
+  filter(smallpath %in% std_neu) |>
+  mutate(resize = ifelse(Group == "MF0016", 1, resize) ) |>
+  arrange(smallpath) |>
+  tidyr::fill(resize) # missing MF0018 filled from other MF0018
+
+
+same <- exif$smallpath |> gsub("manyfaces/small/", "", x = _) |>
+  gsub("\\.jpg", "", x = _) == names(imgs)
+
+stopifnot(all(same))
+
+resized <- resize(imgs, exif$resize)
+```
+
+```{r}
+fill_patch <- patch(resized)
+#fill_patch <- "red"
+h <- 840
+w <- h/4*3
+eye_height <- .45
+align_args <- list(
+  stimuli = resized,
+  width = w,
+  height = h,
+  pt1 = 71,
+  pt2 = 71,
+  x1 = w/2,
+  x2 = w/2,
+  y1 = h*eye_height,
+  y2 = h*eye_height,
+  fill = fill_patch
+)
+
+onepoint_resize <- do.call(align, args = align_args)
+```
+
+
+```{r}
+write_stim(onepoint_resize, 
+           "manyfaces/resized1point/", 
+           format = "jpg", 
+           overwrite = TRUE)
+```
+
+```{r}
+plot_stim(onepoint_resize, ncol = 21, fill = "black") |>
+  write_stim(dir = "manyfaces/figs", 
+             names = "align_onepoint_resized2", 
+             format = "jpg", 
+             overwrite = TRUE)
+```
+

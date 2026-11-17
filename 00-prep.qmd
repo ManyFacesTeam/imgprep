@@ -1,0 +1,119 @@
+---
+title: "Image Prep Pipeline"
+format: 
+  html:
+    toc: true
+    fig-asp: 0.667
+    fig-height: 400
+execute: 
+  echo: true
+  warning: true
+  error: true
+---
+
+```{r}
+#| message: false
+
+set.seed(8675309)
+# remotes::install_github("debruine/webmorphR")
+library(webmorphR)
+# remotes::install_github("debruine/webmorphR.dlib")
+# library(webmorphR.dlib)
+```
+
+## Setup
+
+Since we can't put all of the images in the code repository for privacy purposes, this code assumes the images are in the project directory under "images/raw" and will save processed images under "images/proc". The repository has some demo images in this directory for script testing purposes.
+
+```{r}
+# setup images directories
+img_dir <- "manyfaces"
+raw_dir <- file.path(img_dir, "raw")
+proc_dir <- file.path(img_dir, "proc")
+
+# colour defaults
+wm_opts(fill = "white") # set fill to image background colour
+```
+
+## Load images 
+
+```{r}
+# read in only front-facing raw images
+raw_files <- list.files(raw_dir, "_0\\.cr(3|2)$", 
+                        full.names = TRUE, 
+                        recursive = TRUE, 
+                        ignore.case = TRUE)
+```
+
+## Delineate 
+
+We just need the centre eye points here. 
+
+```{r, eval = FALSE}
+# images too big for Face++
+for (i in seq_along(raw_files)) {
+  tem <- sub("\\.CR(3|2)", "\\.tem", raw_files[[i]])
+  if (!file.exists(tem)) {
+    raw_imgs <- read_stim(raw_files[[i]])
+    
+    tryCatch({
+      small <- raw_imgs |>
+        resize(0.25) |>
+        auto_delin("fpp106")
+      
+      small[[1]]$img <- NULL
+      small[[1]]$imgpath <- NULL
+      big <- resize(small, 4)
+      
+      
+      write_stim(big, 
+                 dir = dirname(tem), 
+                 names = basename(tem) |> sub("\\.tem$", "", x = _),
+                 overwrite = FALSE)
+    }, error = function(e) {
+      message(e$message)
+    })
+  }
+}
+```
+
+```{r}
+# make smaller version for experimenting
+std_neu_files <- list.files(raw_dir, "_std_neu_0\\.cr(3|2)$", 
+                        full.names = TRUE, 
+                        recursive = TRUE, 
+                        ignore.case = TRUE)
+std_neu_files <- std_neu_files[!grepl("test", std_neu_files)]
+
+for (file in std_neu_files) {
+  read_stim(file) |>
+    resize(0.25) |>
+    write_stim(dir = "manyfaces/small", format = "jpg")
+}
+```
+
+
+## Exifs
+
+```{r, eval = FALSE}
+std_neu_files <- raw_files[grepl("_std_neu_0", raw_files)]
+std_neu_files <- std_neu_files[!grepl("test", std_neu_files)]
+
+exifs <- lapply(std_neu_files, \(f) {
+  img <- magick::image_read(f)
+  magick::image_attributes(img)
+})
+
+saveRDS(exifs, "std_neu_0_exifs.Rds")
+
+exifs_labelled <- lapply(seq_along(exifs), \(i) {
+  exifs[[i]]$file <- basename(std_neu_files[[i]])
+  exifs[[i]]
+})
+do.call(dplyr::bind_rows, exifs_labelled) -> all_exifs
+
+all_exifs |> 
+  tidyr::pivot_wider(names_from = "property") |>
+  readr::write_csv("exifs.csv")
+```
+
